@@ -3,7 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
 const QRCode = require("qrcode");
-const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
+const { S3Client, ListObjectsV2Command, PutObjectCommand } = require("@aws-sdk/client-s3");
 
 const app = express();
 app.use(express.json());
@@ -15,6 +15,7 @@ const {
   R2_SECRET_ACCESS_KEY,
   R2_BUCKET_NAME,
   R2_PUBLIC_URL,
+  ADMIN_TOKEN,
   PORT = 3000,
 } = process.env;
 
@@ -73,6 +74,26 @@ function normalizePublicBaseUrl(url) {
   return url.endsWith("/") ? url : `${url}/`;
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function isAdminAuthorized(req) {
+  if (!ADMIN_TOKEN) {
+    return false;
+  }
+
+  const authHeader = req.get("authorization") || "";
+  const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+
+  return req.query.token === ADMIN_TOKEN || bearerToken === ADMIN_TOKEN;
+}
+
 async function sendTelegramMessage(chatId, text) {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
 
@@ -127,6 +148,25 @@ async function uploadToR2(key, body, contentType) {
   await s3.send(command);
 }
 
+async function listR2Objects(prefix) {
+  const objects = [];
+  let continuationToken;
+
+  do {
+    const command = new ListObjectsV2Command({
+      Bucket: R2_BUCKET_NAME,
+      Prefix: prefix,
+      ContinuationToken: continuationToken,
+    });
+
+    const response = await s3.send(command);
+    objects.push(...(response.Contents || []));
+    continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+  } while (continuationToken);
+
+  return objects;
+}
+
 async function processTelegramAudio(message) {
   const chatId = message.chat.id;
   const messageId = message.message_id;
@@ -164,6 +204,82 @@ async function processTelegramAudio(message) {
 
 app.get("/", (req, res) => {
   res.send("Bot de áudio + QR Code rodando.");
+});
+
+app.get("/admin/midias", async (req, res) => {
+  if (!isAdminAuthorized(req)) {
+    res.status(401).send("Nao autorizado.");
+    return;
+  }
+
+  try {
+    const publicBaseUrl = normalizePublicBaseUrl(R2_PUBLIC_URL);
+    const [audios, qrcodes] = await Promise.all([
+      listR2Objects("audios/"),
+      listR2Objects("qrcodes/"),
+    ]);
+
+    const renderRows = (items) =>
+      items
+        .sort((a, b) => String(b.LastModified).localeCompare(String(a.LastModified)))
+        .map((item) => {
+          const key = item.Key;
+          const url = `${publicBaseUrl}${key}`;
+          const date = item.LastModified ? new Date(item.LastModified).toLocaleString("pt-BR") : "";
+          const sizeKb = item.Size ? `${Math.ceil(item.Size / 1024)} KB` : "";
+
+          return `
+            <tr>
+              <td>${escapeHtml(date)}</td>
+              <td>${escapeHtml(sizeKb)}</td>
+              <td><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(key)}</a></td>
+            </tr>
+          `;
+        })
+        .join("");
+
+    res.send(`<!doctype html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <title>Midias do bot</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 24px; color: #202124; }
+            h1, h2 { margin: 0 0 16px; }
+            h2 { margin-top: 32px; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+            th, td { border-bottom: 1px solid #ddd; padding: 10px; text-align: left; vertical-align: top; }
+            th { background: #f6f8fa; }
+            a { color: #0969da; word-break: break-all; }
+            .summary { margin-bottom: 24px; }
+          </style>
+        </head>
+        <body>
+          <h1>Midias do bot</h1>
+          <p class="summary">${audios.length} audios e ${qrcodes.length} QR Codes encontrados no R2.</p>
+
+          <h2>Audios</h2>
+          <table>
+            <thead>
+              <tr><th>Data</th><th>Tamanho</th><th>Arquivo</th></tr>
+            </thead>
+            <tbody>${renderRows(audios) || "<tr><td colspan=\"3\">Nenhum audio encontrado.</td></tr>"}</tbody>
+          </table>
+
+          <h2>QR Codes</h2>
+          <table>
+            <thead>
+              <tr><th>Data</th><th>Tamanho</th><th>Arquivo</th></tr>
+            </thead>
+            <tbody>${renderRows(qrcodes) || "<tr><td colspan=\"3\">Nenhum QR Code encontrado.</td></tr>"}</tbody>
+          </table>
+        </body>
+      </html>`);
+  } catch (error) {
+    console.error("Erro ao listar midias do R2:", error);
+    res.status(500).send("Erro ao listar midias.");
+  }
 });
 
 app.post("/telegram/webhook", (req, res) => {

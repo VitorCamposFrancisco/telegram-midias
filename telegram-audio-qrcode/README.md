@@ -43,9 +43,12 @@ R2_SECRET_ACCESS_KEY=sua_secret_key
 R2_BUCKET_NAME=telegram-midias
 R2_PUBLIC_URL=https://sua-url-publica-do-r2/
 PORT=3000
+ADMIN_TOKEN=crie_uma_senha_forte_para_listar_as_midias
 ```
 
 Importante: `R2_PUBLIC_URL` deve apontar para a URL pública do bucket ou domínio público configurado no Cloudflare R2. Ela será combinada com os caminhos `audios/...` e `qrcodes/...`.
+
+`ADMIN_TOKEN` protege a página que lista todos os áudios e QR Codes já enviados ao R2.
 
 ## Rodar localmente
 
@@ -137,6 +140,29 @@ Os QR Codes ficam em:
 ```text
 qrcodes/YYYY-MM-DD/qr_audio_<chatId>_<messageId>.png
 ```
+
+## Acessar todos os audios e QR Codes depois
+
+O projeto tem uma rota administrativa simples:
+
+```text
+https://SUA_URL_PUBLICA/admin/midias?token=SEU_ADMIN_TOKEN
+```
+
+Exemplo na Render:
+
+```text
+https://telegram-midias.onrender.com/admin/midias?token=SEU_ADMIN_TOKEN
+```
+
+Essa pagina lista os arquivos salvos no R2 em:
+
+```text
+audios/
+qrcodes/
+```
+
+Nao compartilhe o `ADMIN_TOKEN` publicamente. Quem tiver esse link com o token consegue ver todos os links dos arquivos listados.
 
 ## Observacoes
 
