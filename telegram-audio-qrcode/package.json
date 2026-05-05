@@ -1,0 +1,25 @@
+{
+  "name": "telegram-audio-qrcode",
+  "version": "1.0.0",
+  "description": "Bot do Telegram que salva audios no Cloudflare R2 e gera QR Codes com links publicos.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "keywords": [
+    "telegram",
+    "qrcode",
+    "cloudflare-r2",
+    "audio"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.806.0",
+    "axios": "^1.9.0",
+    "dotenv": "^16.5.0",
+    "express": "^4.21.2",
+    "qrcode": "^1.5.4"
+  }
+}
